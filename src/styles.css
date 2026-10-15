@@ -1,0 +1,27 @@
+:root { color-scheme: light dark; --bg:#fff; --fg:#1b1f24; --muted:#667085; --line:#d0d5dd; --accent:#1d4ed8; --bad:#b42318; --ok:#067647; --warn:#b54708; }
+@media (prefers-color-scheme: dark) { :root { --bg:#14171c; --fg:#e6e8eb; --muted:#9aa4b2; --line:#33383f; --accent:#7aa2ff; --bad:#ff8a7a; --ok:#5fd39b; --warn:#f5a85a; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,-apple-system,"Noto Sans KR",sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 1.3rem; }
+.tabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:16px; }
+.tabs button { background:none; border:0; padding:10px 18px; font:inherit; color:var(--muted); cursor:pointer; border-bottom:3px solid transparent; }
+.tabs button[aria-selected="true"] { color:var(--fg); border-color:var(--accent); font-weight:600; }
+.field { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; flex:1; min-width:120px; }
+.row { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+label { font-size:.85rem; color:var(--muted); }
+input, select { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); }
+button { font:inherit; cursor:pointer; }
+.swap, .result button { padding:8px 12px; border:1px solid var(--line); border-radius:8px; background:none; color:var(--fg); margin-bottom:12px; }
+.result { border:1px solid var(--line); border-radius:12px; padding:16px; margin:12px 0; }
+.result button { margin:0 0 0 12px; }
+.big { font-size: 2.2rem; font-weight:700; word-break: break-all; }
+.unit { font-size:1.2rem; color:var(--muted); }
+.reject { border:1px solid var(--bad); border-radius:12px; padding:12px 16px; margin:12px 0; }
+.reject strong { color:var(--bad); }
+.muted { color:var(--muted); font-size:.9rem; }
+.basis { border:1px solid var(--line); border-radius:12px; padding:8px 16px; }
+.basis summary { cursor:pointer; font-weight:600; }
+dt { font-weight:600; margin-top:8px; } dd { margin:0 0 0 0; } code { word-break: break-word; }
+.flag { font-weight:700; font-size:1.3rem; } .flag.normal{color:var(--ok)} .flag.low{color:var(--warn)} .flag.high{color:var(--bad)}
+footer { margin-top:32px; font-size:.8rem; color:var(--muted); }
