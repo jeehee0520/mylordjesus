@@ -4,6 +4,8 @@ name: Manuscript Assistant – build installers
 # --selftest mode, and (for tags named ma-v1.2.3) publishes them on a GitHub Release.
 on:
   push:
+    # listing tags alone would stop branch pushes from triggering the workflow
+    branches: ["**"]
     paths:
       - "manuscript_assistant/**"
       - ".github/workflows/manuscript-assistant.yml"
