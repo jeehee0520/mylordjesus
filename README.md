@@ -34,3 +34,6 @@ npm run build
 | 교차검증(Labcorp, CMEinfo, NBME) | **테스트에서 대조하지 못함** (`it.todo`) | 세 문서 모두 접근 불가. 대신 계산 정합성(왕복, 알려진 대략값)만 테스트 |
 
 모든 항목은 코드 주석/테스트에 `TODO(verify)` 로 표시했다.
+
+## 투고 양식 도우미 (`manuscript_assistant/`)
+저널 투고 규정으로 Word 원고 템플릿 생성, Figure 해상도 변환, 원고 서식 변환(내용 불변 검증), 오타·오류 점검(변경 내용 추적 수정)을 하는 로컬 Streamlit 앱. 외부 API를 사용하지 않음. 자세한 내용은 [manuscript_assistant/README.md](manuscript_assistant/README.md).

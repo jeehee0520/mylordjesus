@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+profiles/*
+!profiles/README.md
+*.docx
+*.pdf

@@ -1,0 +1,14 @@
+# Keep everything on this machine: no usage statistics are sent to Streamlit.
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
+maxUploadSize = 200
+enableXsrfProtection = true
+
+[client]
+toolbarMode = "minimal"
+
+[theme]
+base = "light"
