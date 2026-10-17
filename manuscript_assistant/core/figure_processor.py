@@ -164,7 +164,7 @@ def process_raster(name: str, data: bytes, opt: FigureOptions) -> FigureResult:
     target_w = max(1, round(width_mm / MM_PER_INCH * opt.dpi))
     target_h = max(1, round(h_px * target_w / w_px))
     scale = target_w / w_px
-    if scale > 1.0001:
+    if scale > 1.02:  # ignore rounding-level differences
         effective = w_px / (width_mm / MM_PER_INCH)
         msg = (f"업스케일 {scale:.2f}배: 원본은 이 크기({width_mm:.0f} mm)에서 실제 {effective:.0f} dpi입니다. "
                "dpi 숫자를 올려도 원본에 없는 세부는 생기지 않습니다. 가능하면 원본 프로그램에서 고해상도(또는 벡터)로 다시 내보내세요.")
