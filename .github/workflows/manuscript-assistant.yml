@@ -1,0 +1,120 @@
+name: Manuscript Assistant – build installers
+
+# Builds a self-contained app for Windows, macOS and Linux, starts each one in
+# --selftest mode, and (for tags named ma-v1.2.3) publishes them on a GitHub Release.
+on:
+  push:
+    paths:
+      - "manuscript_assistant/**"
+      - ".github/workflows/manuscript-assistant.yml"
+    tags:
+      - "ma-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: manuscript_assistant
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: manuscript_assistant/requirements.txt
+      - run: pip install -r requirements.txt pytest reportlab
+      - run: pytest -q
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+          - os: macos-latest
+            label: macos-arm64
+          - os: ubuntu-22.04
+            label: linux-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: manuscript_assistant/requirements.txt
+      - name: Version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/ma-v* ]]; then v="${GITHUB_REF#refs/tags/ma-v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - run: pip install -r requirements.txt pyinstaller==6.22.3
+      - run: pyinstaller --noconfirm --clean --distpath packaging/dist --workpath packaging/build packaging/ManuscriptAssistant.spec
+
+      - name: Self-test (Windows)
+        if: runner.os == 'Windows'
+        run: packaging\dist\ManuscriptAssistant\ManuscriptAssistant.exe --selftest
+      - name: Self-test (macOS)
+        if: runner.os == 'macOS'
+        run: packaging/dist/ManuscriptAssistant.app/Contents/MacOS/ManuscriptAssistant --selftest
+      - name: Self-test (Linux)
+        if: runner.os == 'Linux'
+        run: packaging/dist/ManuscriptAssistant/ManuscriptAssistant --selftest
+
+      - name: Package (Windows installer + portable zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          iscc /DAppVersion=${{ steps.version.outputs.version }} packaging\windows\installer.iss
+          Compress-Archive -Path packaging\dist\ManuscriptAssistant -DestinationPath "packaging\dist\ManuscriptAssistant-${{ steps.version.outputs.version }}-windows-portable.zip"
+      - name: Package (macOS dmg)
+        if: runner.os == 'macOS'
+        run: |
+          hdiutil create -volname "Manuscript Assistant" -srcfolder packaging/dist/ManuscriptAssistant.app \
+            -ov -format UDZO "packaging/dist/ManuscriptAssistant-${{ steps.version.outputs.version }}-macos-arm64.dmg"
+      - name: Package (Linux tar.gz)
+        if: runner.os == 'Linux'
+        run: tar -C packaging/dist -czf "packaging/dist/ManuscriptAssistant-${{ steps.version.outputs.version }}-linux-x64.tar.gz" ManuscriptAssistant
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ManuscriptAssistant-${{ matrix.label }}
+          path: |
+            manuscript_assistant/packaging/dist/*.exe
+            manuscript_assistant/packaging/dist/*.zip
+            manuscript_assistant/packaging/dist/*.dmg
+            manuscript_assistant/packaging/dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/ma-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Manuscript Assistant ${{ github.ref_name }}
+          files: artifacts/*
+          body: |
+            Download the file for your computer:
+            - **Windows**: `ManuscriptAssistant-Setup-*.exe` (installer) or the `windows-portable.zip`
+            - **macOS (Apple silicon)**: `*-macos-arm64.dmg`
+            - **Linux**: `*-linux-x64.tar.gz`
+            See manuscript_assistant/README.md for first-start instructions.

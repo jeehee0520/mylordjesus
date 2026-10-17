@@ -6,7 +6,9 @@ All processing happens on this machine. No manuscript text is sent to any extern
 from __future__ import annotations
 
 import io
+import os
 import re
+import threading
 import zipfile
 
 import pandas as pd
@@ -58,6 +60,11 @@ with st.sidebar:
         st.caption(f"현재 원고: {ss.manuscript[0]}")
     st.divider()
     st.caption("상태 표시: 🟢 규정 근거 있음 · 🔵 사용자 지정 · 🟡 규정에 없음(기본값) · ⚪ 적용 안 함")
+    if os.environ.get("MA_DESKTOP"):
+        st.divider()
+        if st.button("⏻ 프로그램 종료", width="stretch"):
+            st.success("프로그램을 종료했습니다. 이 탭을 닫아도 됩니다.")
+            threading.Timer(0.5, os._exit, args=(0,)).start()
 
 
 def require_profile(confirmed: bool = True) -> Profile | None:

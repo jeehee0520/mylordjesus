@@ -242,7 +242,7 @@ class Proofreader:
                 before = text[:m.start()].rstrip()
                 sentence_start = not before or before[-1] in ".!?:\n"
                 if word[0].isupper() and not sentence_start and not word.isupper():
-                    continue  # e.g. "Samsung Medical Center" is a name
+                    continue  # e.g. "Example Medical Center" is a name
                 repl = _case_like(word, table[word.lower()])
                 self.add(p, m.start(1), m.end(1), repl, "저널 철자 규칙",
                          f"저널 규정은 {'영국식' if target == 'British' else '미국식'} 철자입니다: '{word}' → '{repl}'", MEDIUM)

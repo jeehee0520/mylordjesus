@@ -4,30 +4,31 @@
 
 🔒 **외부 API를 전혀 사용하지 않습니다.** 규정 분석, 맞춤법 검사, 문서 수정은 모두 프로그램이 돌아가는 컴퓨터(또는 기관 서버) 안에서 이루어집니다. Streamlit 사용 통계 전송도 꺼져 있습니다(`.streamlit/config.toml`).
 
-## 실행
+## 설치 (Python 필요 없음)
 
-| 환경 | 방법 |
-|---|---|
-| Windows | [Python 3.10 이상](https://www.python.org/downloads/) 설치(설치 화면에서 **"Add python.exe to PATH"** 체크) → 폴더의 `run_windows.bat` 더블클릭 |
-| macOS / Linux | `./run_mac_linux.sh` |
-| 직접 | `pip install -r requirements.txt` → `python launcher.py` |
-| 기관 서버 (Docker) | `docker build -t manuscript-assistant .` → `docker run -p 8501:8501 manuscript-assistant` |
+[Releases](https://github.com/jeehee0520/mylordjesus/releases) 페이지에서 내 컴퓨터에 맞는 파일을 받으세요.
 
-처음 실행할 때 패키지를 설치하므로 몇 분 걸리고 인터넷이 필요합니다. 이후에는 바로 열리고, 실행 중에는 인터넷이 필요 없습니다.
-준비되면 기본 브라우저에서 앱이 자동으로 열립니다 (http://localhost:8501). 검은 창(콘솔)을 닫으면 앱이 종료됩니다.
-`launcher.py`는 앱을 이 컴퓨터에서만 접속되도록(127.0.0.1) 실행합니다.
+| 운영체제 | 파일 | 설치 · 실행 |
+|---|---|---|
+| Windows 10/11 | `ManuscriptAssistant-Setup-x.y.z.exe` | 실행해 설치하면 시작 메뉴(와 선택 시 바탕화면)에 **Manuscript Assistant**가 생깁니다. 관리자 권한이 필요 없습니다. 설치 없이 쓰려면 `windows-portable.zip`을 압축 해제한 뒤 `ManuscriptAssistant.exe` 실행 |
+| macOS (Apple silicon) | `…-macos-arm64.dmg` | dmg를 열고 앱을 **응용 프로그램** 폴더로 끌어 놓은 뒤 실행 |
+| Linux (x64) | `…-linux-x64.tar.gz` | 압축 해제 후 `ManuscriptAssistant/ManuscriptAssistant` 실행 |
 
-### 앱이 열리지 않을 때 (Windows)
+프로그램을 실행하면 기본 브라우저에 앱 화면이 열립니다. 앱은 이 컴퓨터 안에서만(127.0.0.1) 동작하며 인터넷이 필요 없습니다.
+끝낼 때는 앱 왼쪽의 **⏻ 프로그램 종료**를 누르세요 (Windows/Linux에서는 함께 뜨는 검은 창을 닫아도 됩니다).
 
-| 증상 | 해결 |
-|---|---|
-| "app.py was not found" | ZIP 파일 안에서 바로 실행한 경우입니다. ZIP을 **압축 풀기** 한 뒤, 풀린 폴더에서 실행하세요. |
-| "Python 3.10 or newer was not found" | python.org에서 Python을 설치하고 "Add python.exe to PATH"를 체크하세요. Microsoft Store 바로가기는 설치된 Python이 아닙니다. |
-| "Package installation failed" | 인터넷 연결 또는 기관 프록시를 확인하세요. 해결 후 다시 실행하면 설치를 이어서 합니다. |
-| 창에 주소만 나오고 브라우저가 안 열림 | 창에 표시된 주소(예: http://localhost:8501)를 브라우저에 직접 입력하세요. |
-| 그 밖의 오류 | 창이 닫히지 않고 멈춰 있으니, 창 내용을 캡처해 알려주세요. |
+### 처음 실행할 때 보안 경고가 나오면
 
-> 배포 시 주의: Streamlit Community Cloud 같은 외부 호스팅에 올리면 원고가 그 서버로 업로드됩니다. 미발표 원고를 다루므로 **개인 PC 또는 기관 내부 서버**에서 실행하세요.
+이 프로그램은 코드 서명 인증서로 서명되어 있지 않아, 운영체제가 처음 한 번 경고를 보여줍니다.
+
+- **Windows** "Windows의 PC 보호" 화면 → **추가 정보** → **실행**
+- **macOS** "확인되지 않은 개발자" 또는 "손상되었기 때문에 열 수 없습니다" → 앱을 **Control+클릭 → 열기**, 또는 **시스템 설정 › 개인정보 보호 및 보안 › 그래도 열기**.
+  그래도 열리지 않으면 터미널에서 `xattr -dr com.apple.quarantine "/Applications/ManuscriptAssistant.app"`
+- 브라우저가 자동으로 열리지 않으면 검은 창(Windows/Linux)에 표시된 주소(예: `http://localhost:8501`)를 직접 입력하세요.
+  macOS에서는 문제가 생기면 `~/.manuscript_assistant/app.log`에 기록이 남습니다.
+
+> 미발표 원고를 다루므로 외부 호스팅(예: Streamlit Community Cloud)에 올리지 말고 개인 PC나 기관 내부 서버에서 실행하세요.
+> 기관 서버에 올릴 때는 Docker를 쓸 수 있습니다: `docker build -t manuscript-assistant .` → `docker run -p 8501:8501 manuscript-assistant`
 
 ## 사용 순서
 
@@ -67,13 +68,27 @@
 ## 개발
 
 ```
-pip install -r requirements.txt pytest
-pytest                                   # 합성 문서로 하는 테스트
+pip install -r requirements.txt pytest reportlab
+python desktop.py            # 소스에서 실행 (브라우저 자동 열림)
+pytest                       # 합성 문서로 하는 테스트
 MA_GUIDELINE=규정.pdf MA_MANUSCRIPT=원고.docx pytest tests/test_real_files.py   # 내 파일로 검증
 ```
 
+### 설치 파일 만들기 (배포)
+
+설치 파일은 GitHub Actions(`.github/workflows/manuscript-assistant.yml`)가 Windows·macOS·Linux에서 PyInstaller로 만듭니다.
+각 운영체제에서 만든 프로그램을 `--selftest`로 실제로 실행해 모든 기능(규정 분석·템플릿·서식 변환·오류 점검·Figure·웹 화면)이 동작하는지 확인한 뒤에만 파일을 올립니다.
+
+- 코드를 푸시하면 Actions 실행 결과의 **Artifacts**에서 설치 파일을 받을 수 있습니다.
+- `ma-v1.0.0` 같은 태그를 푸시하면 같은 파일이 **Releases**에 공개됩니다: `git tag ma-v1.0.0 && git push origin ma-v1.0.0`
+- 직접 만들려면: `pyinstaller --noconfirm --distpath packaging/dist --workpath packaging/build packaging/ManuscriptAssistant.spec`
+  (Windows 설치 프로그램은 그 뒤 Inno Setup으로 `iscc packaging\windows\installer.iss`)
+
 | 파일 | 역할 |
 |---|---|
+| `desktop.py` | 데스크톱 실행 진입점 (빈 포트 선택, 브라우저 열기, `--selftest`) |
+| `app.py` | 화면 (Streamlit) |
+| `packaging/` | PyInstaller 설정, Windows 설치 프로그램 스크립트 |
 | `core/guideline_loader.py` | 규정 텍스트/PDF/DOCX/TXT/HTML 읽기 (페이지 위치 보존) |
 | `core/profile_extractor.py`, `core/profile.py` | 규칙 추출과 Journal Profile |
 | `core/template_builder.py` | Word 템플릿·체크리스트 |

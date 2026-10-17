@@ -6,3 +6,5 @@ profiles/*
 *.docx
 *.pdf
 .venv/
+packaging/build/
+packaging/dist/
