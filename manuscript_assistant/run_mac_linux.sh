@@ -1,7 +1,11 @@
 #!/usr/bin/env sh
-# 처음 한 번 패키지를 설치하고, 이후에는 바로 실행합니다.
-cd "$(dirname "$0")"
-if [ ! -d .venv ]; then
-  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# Installs packages on the first run (and when requirements.txt changes), then opens the app in the browser.
+cd "$(dirname "$0")" || exit 1
+if [ ! -x .venv/bin/python ]; then
+  python3 -m venv .venv || { echo "Python 3.10+ (python3) is required."; exit 1; }
 fi
-exec .venv/bin/streamlit run app.py
+if ! cmp -s requirements.txt .venv/requirements.installed; then
+  .venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt || exit 1
+  cp requirements.txt .venv/requirements.installed
+fi
+exec .venv/bin/python launcher.py

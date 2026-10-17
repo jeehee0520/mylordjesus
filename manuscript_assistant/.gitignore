@@ -5,3 +5,4 @@ profiles/*
 !profiles/README.md
 *.docx
 *.pdf
+.venv/

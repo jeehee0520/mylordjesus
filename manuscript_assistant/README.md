@@ -8,12 +8,24 @@
 
 | 환경 | 방법 |
 |---|---|
-| Windows | Python 3.10 이상 설치 → `run_windows.bat` 더블클릭 |
+| Windows | [Python 3.10 이상](https://www.python.org/downloads/) 설치(설치 화면에서 **"Add python.exe to PATH"** 체크) → 폴더의 `run_windows.bat` 더블클릭 |
 | macOS / Linux | `./run_mac_linux.sh` |
-| 직접 | `pip install -r requirements.txt` → `streamlit run app.py` |
+| 직접 | `pip install -r requirements.txt` → `python launcher.py` |
 | 기관 서버 (Docker) | `docker build -t manuscript-assistant .` → `docker run -p 8501:8501 manuscript-assistant` |
 
-브라우저에서 http://localhost:8501 이 열립니다. 처음 설치할 때만 인터넷(패키지 다운로드)이 필요하고, 실행 중에는 필요 없습니다.
+처음 실행할 때 패키지를 설치하므로 몇 분 걸리고 인터넷이 필요합니다. 이후에는 바로 열리고, 실행 중에는 인터넷이 필요 없습니다.
+준비되면 기본 브라우저에서 앱이 자동으로 열립니다 (http://localhost:8501). 검은 창(콘솔)을 닫으면 앱이 종료됩니다.
+`launcher.py`는 앱을 이 컴퓨터에서만 접속되도록(127.0.0.1) 실행합니다.
+
+### 앱이 열리지 않을 때 (Windows)
+
+| 증상 | 해결 |
+|---|---|
+| "app.py was not found" | ZIP 파일 안에서 바로 실행한 경우입니다. ZIP을 **압축 풀기** 한 뒤, 풀린 폴더에서 실행하세요. |
+| "Python 3.10 or newer was not found" | python.org에서 Python을 설치하고 "Add python.exe to PATH"를 체크하세요. Microsoft Store 바로가기는 설치된 Python이 아닙니다. |
+| "Package installation failed" | 인터넷 연결 또는 기관 프록시를 확인하세요. 해결 후 다시 실행하면 설치를 이어서 합니다. |
+| 창에 주소만 나오고 브라우저가 안 열림 | 창에 표시된 주소(예: http://localhost:8501)를 브라우저에 직접 입력하세요. |
+| 그 밖의 오류 | 창이 닫히지 않고 멈춰 있으니, 창 내용을 캡처해 알려주세요. |
 
 > 배포 시 주의: Streamlit Community Cloud 같은 외부 호스팅에 올리면 원고가 그 서버로 업로드됩니다. 미발표 원고를 다루므로 **개인 PC 또는 기관 내부 서버**에서 실행하세요.
 
