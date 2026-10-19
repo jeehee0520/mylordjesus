@@ -117,7 +117,7 @@ jobs:
         shell: bash
         run: |
           if [[ "$GITHUB_REF" == refs/tags/ma-v* ]]; then echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          else echo "tag=ma-v$(tr -d '[:space:]' < manuscript_assistant/VERSION)" >> "$GITHUB_OUTPUT"; fi
+          else echo "tag=ma-v$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"; fi  # run steps start in manuscript_assistant/
       - uses: actions/download-artifact@v4
         with:
           path: artifacts

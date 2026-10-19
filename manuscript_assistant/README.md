@@ -84,7 +84,9 @@ MA_GUIDELINE=규정.pdf MA_MANUSCRIPT=원고.docx pytest tests/test_real_files.p
 각 운영체제에서 만든 프로그램을 `--selftest`로 실제로 실행해 모든 기능(규정 분석·템플릿·서식 변환·오류 점검·Figure·웹 화면)이 동작하는지 확인한 뒤에만 파일을 올립니다.
 
 - 코드를 푸시하면 Actions 실행 결과의 **Artifacts**에서 설치 파일을 받을 수 있습니다.
-- `ma-v1.0.0` 같은 태그를 푸시하면 같은 파일이 **Releases**에 공개됩니다: `git tag ma-v1.0.0 && git push origin ma-v1.0.0`
+- **Releases**에 공개하는 방법 (둘 중 하나):
+  - `VERSION` 파일의 버전을 올리고, 커밋 메시지에 `[release]`를 넣어 푸시 → 빌드·자가 점검이 모두 통과하면 `ma-v<버전>` 태그와 Release가 자동으로 만들어집니다.
+  - 또는 `ma-v1.2.3` 같은 태그를 직접 푸시: `git tag ma-v1.2.3 && git push origin ma-v1.2.3`
 - 직접 만들려면: `pyinstaller --noconfirm --distpath packaging/dist --workpath packaging/build packaging/ManuscriptAssistant.spec`
   (Windows 설치 프로그램은 그 뒤 Inno Setup으로 `iscc packaging\windows\installer.iss`)
 
