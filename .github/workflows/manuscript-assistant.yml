@@ -1,7 +1,8 @@
 name: Manuscript Assistant – build installers
 
 # Builds a self-contained app for Windows, macOS and Linux, starts each one in
-# --selftest mode, and (for tags named ma-v1.2.3) publishes them on a GitHub Release.
+# --selftest mode, and publishes them on a GitHub Release when a tag ma-v1.2.3 is pushed,
+# or when a pushed commit message contains "[release]" (version taken from manuscript_assistant/VERSION).
 on:
   push:
     # listing tags alone would stop branch pushes from triggering the workflow
@@ -58,8 +59,12 @@ jobs:
       - name: Version
         id: version
         shell: bash
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/ma-v* ]]; then v="${GITHUB_REF#refs/tags/ma-v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          if [[ "$GITHUB_REF" == refs/tags/ma-v* ]]; then v="${GITHUB_REF#refs/tags/ma-v}"
+          elif [[ "$COMMIT_MSG" == *"[release]"* ]]; then v="$(tr -d '[:space:]' < VERSION)"
+          else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
       - run: pip install -r requirements.txt pyinstaller==6.22.3
       - run: pyinstaller --noconfirm --clean --distpath packaging/dist --workpath packaging/build packaging/ManuscriptAssistant.spec
@@ -100,19 +105,28 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/ma-v')
+    if: startsWith(github.ref, 'refs/tags/ma-v') || contains(github.event.head_commit.message, '[release]')
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - name: Tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/ma-v* ]]; then echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else echo "tag=ma-v$(tr -d '[:space:]' < manuscript_assistant/VERSION)" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          name: Manuscript Assistant ${{ github.ref_name }}
+          tag_name: ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Manuscript Assistant ${{ steps.tag.outputs.tag }}
           files: artifacts/*
           body: |
             Download the file for your computer:
