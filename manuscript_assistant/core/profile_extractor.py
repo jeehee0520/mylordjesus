@@ -241,7 +241,7 @@ class Extractor:
             symbols = re.findall(r"[†‡§¶‖#]", m.group(1))
             self.found("tables.footnote_symbols", symbols, m)
             after = self.text[m.end():m.end() + 120]
-            p = re.search(r"((?:\*+[\s,]*)+)\s*should be reserved for P-?values", after, FLAGS)
+            p = re.search(r"((?:\*+[\s,]*)+)\s*(?:should be |are |is )?reserved for P-?values", after, FLAGS)
             if p:
                 self.found("tables.p_value_symbols", re.findall(r"\*+", p.group(1)), m)
         m = self.search(r"editable files?,? not (?:pasted )?as images|tables?[^.]{0,60}editable")

@@ -15,12 +15,15 @@ import pandas as pd
 import streamlit as st
 
 from core import guideline_loader
-from core.figure_processor import FigureOptions, images_from_docx, process
+from core.figure_processor import FigureOptions, images_from_docx, parse_pages, process
 from core.manuscript_formatter import FormatOptions, format_manuscript
 from core.profile import CATEGORIES, FIELDS, NOT_SPECIFIED, SPEC, STATUS_LABEL, Profile, format_value, parse_value
 from core.profile_extractor import extract_profile
 from core.proofreader import HIGH, LOW, MEDIUM, ProofOptions, overlapping, proofread
 from core.template_builder import build_checklist, build_template, checklist_rows
+from core.table_footnotes import plan_table_footnotes
+from core.textmodel import DocView
+from core.ooxml import DocxPackage
 from core.track_changes import apply_corrections
 
 st.set_page_config(page_title="투고 양식 도우미", page_icon="📄", layout="wide")
@@ -214,8 +217,11 @@ with tabs[2]:
     src = st.radio("그림 가져오기", ["그림 파일 업로드", "원고(.docx)에 삽입된 그림 추출"], horizontal=True)
     inputs: list[tuple[str, bytes]] = []
     if src == "그림 파일 업로드":
-        figs = st.file_uploader("PNG, JPG, TIFF, BMP, PDF, EPS, SVG", accept_multiple_files=True,
-                                type=["png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp", "pdf", "eps", "svg"])
+        figs = st.file_uploader("PNG, JPG, TIFF, BMP, PDF, PowerPoint(PPTX), EPS, SVG", accept_multiple_files=True,
+                                type=["png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp", "pdf", "pptx", "eps", "svg"])
+        if any(f.name.lower().endswith(".pptx") for f in figs or []):
+            st.caption("PowerPoint 파일은 슬라이드 하나가 그림 하나가 됩니다. 변환에는 이 컴퓨터의 Microsoft PowerPoint(Windows) 또는 "
+                       "LibreOffice를 사용합니다. 둘 다 없으면 PowerPoint에서 'PDF로 저장'한 파일을 올려 주세요.")
         inputs = [(f.name, f.getvalue()) for f in figs or []]
     else:
         ms = manuscript_input("fig")
@@ -245,9 +251,18 @@ with tabs[2]:
     formats = c3.multiselect("출력 형식", ["PNG", "PDF"], default=["PNG", "PDF"])
     modes = ["RGB", "Grayscale", "CMYK"]
     mode = c3.selectbox("컬러 모드", modes, index=modes.index(profile.get("figures.color_mode", "RGB")))
+    d1, d2 = st.columns(2)
+    trim = d1.checkbox("그림 주변 흰 여백 자르기 (슬라이드에 권장)", value=True)
+    pages_text = d2.text_input("PDF·PPTX에서 변환할 페이지/슬라이드 (비우면 전체)", placeholder="예: 1, 3-5")
     allow_up = st.checkbox("2배를 넘는 업스케일도 허용 (권장하지 않음: 원본에 없는 세부는 생기지 않습니다)")
+    try:
+        pages = parse_pages(pages_text)
+    except ValueError as exc:
+        st.error(str(exc))
+        pages = None
     if st.button("🖼️ 변환", type="primary", disabled=not inputs or not formats):
-        opt = FigureOptions(dpi=int(dpi), width_mm=width, formats=tuple(formats), color_mode=mode, allow_large_upscale=allow_up)
+        opt = FigureOptions(dpi=int(dpi), width_mm=width, formats=tuple(formats), color_mode=mode, allow_large_upscale=allow_up,
+                            trim_whitespace=trim, pages=pages)
         results = [process(n, d, opt) for n, d in inputs]
         zbuf = io.BytesIO()
         with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -310,6 +325,38 @@ with tabs[3]:
                 for d in res.guard.details:
                     st.code(d)
             st.markdown("**적용한 서식**\n" + "\n".join(f"- {a}" for a in res.applied))
+            if res.guard.ok and profile.get("tables.footnote_symbols"):
+                fn_issues, fn_plans = plan_table_footnotes(DocView.load(DocxPackage.from_bytes(res.data)), profile)
+                st.subheader("표 각주 기호")
+                rule = " ".join(profile.get("tables.footnote_symbols"))
+                p_rule = " ".join(profile.get("tables.p_value_symbols") or [])
+                st.caption(f"규정: 일반 각주 {rule} (이 순서){f' · P값 {p_rule}' if p_rule else ''}. "
+                           "각주 문장에 P value가 언급되면 P값 각주로 봅니다. 기호는 표 안에 처음 나오는 순서대로 붙입니다.")
+                rows = [{"표": f"Table {pl.number}", "기존": m, "변경": new, "종류": pl.kinds[m],
+                         "위치 수": pl.occurrences.get(m, 0), "": "변경 없음" if m == new else "변경"}
+                        for pl in fn_plans for m, new in pl.mapping.items()]
+                if rows:
+                    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+                for pl in fn_plans:
+                    for note in pl.notes:
+                        st.warning(f"Table {pl.number}: {note}")
+                locked = [i for i in fn_issues if not i.fixable]
+                if locked:
+                    st.warning(f"{len(locked)}곳은 인용 필드 등 보호된 영역이라 직접 고쳐야 합니다.")
+                todo = [i for i in fn_issues if i.fixable]
+                if not todo:
+                    st.success("표 각주 기호가 이미 규정과 맞습니다." if rows else "각주가 달린 표를 찾지 못했습니다.")
+                elif st.button(f"✍️ 표 각주 기호 {len(todo)}곳 수정 (변경 내용 추적)"):
+                    ss.fn_result = (name, apply_corrections(res.data, todo))
+                if ss.get("fn_result") and ss.fn_result[0] == name:
+                    fres = ss.fn_result[1]
+                    for c in fres.checks:
+                        (st.success if "통과" in c else st.error)(c)
+                    if fres.ok:
+                        st.download_button("⬇️ 서식 변환 + 표 각주 수정본 (변경 내용 추적, .docx)", fres.tracked,
+                                           file_name=f"{stem(name)}_formatted_footnotes_tracked.docx",
+                                           mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                           type="primary")
             cols = st.columns(len(res.stats) or 1)
             for col, (k, v) in zip(cols, res.stats.items()):
                 col.metric(k, v)

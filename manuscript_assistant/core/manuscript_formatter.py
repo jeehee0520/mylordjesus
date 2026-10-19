@@ -359,16 +359,17 @@ def compliance(view: DocView, profile: Profile, pkg: DocxPackage) -> tuple[list[
     elif cit and (sup or brackets):
         out.append(Finding("ok", "인용 형식", f"위첨자 {sup}개, 대괄호 {brackets}개"))
 
-    # Table footnote symbols
-    symbols = profile.get("tables.footnote_symbols")
-    if symbols:
-        bad = []
-        for p in _paras(view, "Tables"):
-            for start, end, text in p.superscript_spans():
-                if start <= 1 and re.fullmatch(r"[0-9a-z]+", text.strip()):
-                    bad.append(text.strip())
-        if bad:
-            out.append(Finding("warn", "표 각주 기호", f"숫자/문자 각주 표시 {len(bad)}개 ({', '.join(bad[:8])}). 규정: {' '.join(symbols)} 순서"))
+    # Table footnote symbols (fixable with tracked changes in the app, see table_footnotes.py)
+    if profile.get("tables.footnote_symbols"):
+        from .table_footnotes import plan_table_footnotes
+
+        fn_issues, plans = plan_table_footnotes(view, profile)
+        changes = [f"Table {pl.number}: {m}→{n}" for pl in plans for m, n in pl.mapping.items() if m != n]
+        if changes:
+            out.append(Finding("warn", "표 각주 기호", f"규정과 다른 기호 {len(changes)}개 ({', '.join(changes)}). "
+                               "아래 '표 각주 기호'에서 변경 내용 추적으로 고칠 수 있습니다."))
+        elif plans:
+            out.append(Finding("ok", "표 각주 기호", "규정과 일치"))
 
     # Trade names
     if profile.get("style.generic_drug_names"):

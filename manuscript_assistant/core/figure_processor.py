@@ -13,8 +13,13 @@ from __future__ import annotations
 
 import io
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import zlib
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from PIL import Image
 
@@ -32,6 +37,8 @@ class FigureOptions:
     allow_large_upscale: bool = False
     flatten_transparency: bool = True
     assumed_source_dpi: int = 72  # when a raster has no dpi metadata and width_mm is None
+    trim_whitespace: bool = False  # cut the white margin around the figure (useful for slides)
+    pages: list[int] | None = None  # 1-based pages/slides to convert; None = all
 
 
 @dataclass
@@ -154,6 +161,15 @@ def process_raster(name: str, data: bytes, opt: FigureOptions) -> FigureResult:
     src_dpi = _source_dpi(img)
     w_px, h_px = img.size
     res.source_info = {"픽셀": f"{w_px}×{h_px}", "dpi": round(src_dpi) if src_dpi else None, "컬러": img.mode}
+    if opt.trim_whitespace:
+        box = _content_box(_to_mode(img, "RGB", True))
+        if box is None:
+            res.error = "그림이 비어 있습니다(전부 흰색)."
+            return res
+        if box != (0, 0, w_px, h_px):
+            img = img.crop(box)
+            res.warnings.append(f"흰 여백을 잘라 {w_px}×{h_px} → {img.size[0]}×{img.size[1]} 픽셀이 되었습니다.")
+            w_px, h_px = img.size
     if opt.width_mm:
         width_mm = opt.width_mm
     else:
@@ -196,65 +212,214 @@ def process_raster(name: str, data: bytes, opt: FigureOptions) -> FigureResult:
     return res
 
 
-def process_pdf(name: str, data: bytes, opt: FigureOptions) -> FigureResult:
+def _content_box(img: Image.Image, pad: int = 4, threshold: int = 250):
+    """Pixel box of everything that is not (near-)white, with a small margin; None if blank."""
+    gray = img.convert("L").point(lambda v: 255 if v < threshold else 0)
+    box = gray.getbbox()
+    if box is None:
+        return None
+    x0, y0, x1, y1 = box
+    return (max(0, x0 - pad), max(0, y0 - pad), min(img.width, x1 + pad), min(img.height, y1 + pad))
+
+
+def process_pdf(name: str, data: bytes, opt: FigureOptions, label: str = "p") -> FigureResult:
+    """Each page (or slide) becomes one figure. Vector content stays vector in the PDF output."""
     import pypdfium2 as pdfium
-    from pypdf import PdfReader, PdfWriter, Transformation
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.generic import NameObject, RectangleObject
 
     res = FigureResult(name)
     reader = PdfReader(io.BytesIO(data))
     doc = pdfium.PdfDocument(data)
+    n_pages = len(reader.pages)
+    wanted = [p for p in (opt.pages or range(1, n_pages + 1)) if 1 <= p <= n_pages]
+    missing = [p for p in (opt.pages or []) if not 1 <= p <= n_pages]
+    if missing:
+        res.warnings.append(f"없는 번호는 건너뛰었습니다: {', '.join(map(str, missing))} (전체 {n_pages}개)")
+    if not wanted:
+        res.error = "변환할 페이지가 없습니다."
+        return res
     stem = _stem(name)
-    for i, page in enumerate(reader.pages):
-        suffix = f"_p{i + 1}" if len(reader.pages) > 1 else ""
-        w_pt, h_pt = float(page.mediabox.width), float(page.mediabox.height)
-        if i == 0:
-            res.source_info = {"페이지": len(reader.pages), "폭(mm)": round(w_pt / 72 * MM_PER_INCH, 1),
-                               "높이(mm)": round(h_pt / 72 * MM_PER_INCH, 1)}
-        width_mm = opt.width_mm or w_pt / 72 * MM_PER_INCH
-        factor = (width_mm / MM_PER_INCH * 72) / w_pt
+    first = reader.pages[0].cropbox
+    res.source_info = {"페이지" if label == "p" else "슬라이드": n_pages,
+                       "폭(mm)": round(float(first.width) / 72 * MM_PER_INCH, 1),
+                       "높이(mm)": round(float(first.height) / 72 * MM_PER_INCH, 1)}
+    for no in wanted:
+        i = no - 1
+        page = reader.pages[i]
+        base = page.cropbox  # pdfium renders this box
+        bw, bh = float(base.width), float(base.height)
+        # crop amounts from each edge, in points (left, bottom, right, top)
+        crop = (0.0, 0.0, 0.0, 0.0)
+        if opt.trim_whitespace:
+            s_preview = 2.0
+            preview = doc[i].render(scale=s_preview).to_pil()
+            box = _content_box(preview, pad=6)
+            if box is None:
+                res.warnings.append(f"{no}번은 비어 있어 건너뛰었습니다.")
+                continue
+            x0, y0, x1, y1 = (v / s_preview for v in box)
+            crop = (x0, bh - y1, bw - x1, y0)
+        cw = bw - crop[0] - crop[2]
+        suffix = f"_{label}{no}" if n_pages > 1 or opt.pages else ""
+        width_mm = opt.width_mm or cw / 72 * MM_PER_INCH
+        factor = (width_mm / MM_PER_INCH * 72) / cw
         if "PDF" in opt.formats:
             writer = PdfWriter()
             writer.add_page(page)
             out_page = writer.pages[0]
+            box = RectangleObject([float(base.left) + crop[0], float(base.bottom) + crop[1],
+                                   float(base.right) - crop[2], float(base.top) - crop[3]])
+            for key in ("/CropBox", "/TrimBox", "/BleedBox", "/ArtBox"):
+                if key in out_page:
+                    del out_page[key]
+            out_page[NameObject("/MediaBox")] = box
             if abs(factor - 1) > 1e-6:
-                out_page.add_transformation(Transformation().scale(factor, factor))
-                out_page.mediabox.lower_left = (float(page.mediabox.left) * factor, float(page.mediabox.bottom) * factor)
-                out_page.mediabox.upper_right = (float(page.mediabox.right) * factor, float(page.mediabox.top) * factor)
-                for box in ("/CropBox", "/TrimBox", "/BleedBox", "/ArtBox"):
-                    if box in out_page:
-                        del out_page[box]
+                out_page.scale_by(factor)
             buf = io.BytesIO()
             writer.write(buf)
             res.outputs.append(FigureOutput(f"{stem}{suffix}.pdf", buf.getvalue(), measure_pdf(buf.getvalue())))
-            if opt.color_mode != "RGB":
-                res.warnings.append("PDF(벡터) 출력은 원본 색 공간을 그대로 유지합니다. 컬러 모드 변환은 PNG에만 적용됩니다.")
         if "PNG" in opt.formats:
             scale = opt.dpi / 72 * factor
-            bitmap = doc[i].render(scale=scale)
-            img = bitmap.to_pil()
+            img = doc[i].render(scale=scale, crop=crop).to_pil()
             img = _to_mode(img, "RGB" if opt.color_mode == "CMYK" else opt.color_mode, True)
             buf = io.BytesIO()
             img.save(buf, "PNG", dpi=(opt.dpi, opt.dpi), optimize=True)
             res.outputs.append(FigureOutput(f"{stem}{suffix}.png", buf.getvalue(), measure_png(buf.getvalue())))
-        _warn_embedded_raster(page, width_mm, opt.dpi, res)
+        area = (float(base.left) + crop[0], float(base.bottom) + crop[1], float(base.right) - crop[2], float(base.top) - crop[3])
+        _warn_embedded_raster(doc[i], area, factor, opt.dpi, res, f"{no}번" if label == "p" else f"슬라이드 {no}")
+    doc.close()
+    if "PDF" in opt.formats and opt.color_mode != "RGB":
+        res.warnings.append("PDF(벡터) 출력은 원본 색 공간을 그대로 유지합니다. 컬러 모드 변환은 PNG에만 적용됩니다.")
     return res
 
 
-def _warn_embedded_raster(page, width_mm: float, dpi: int, res: FigureResult) -> None:
-    """A 'vector' PDF often just wraps a low-resolution bitmap; say so."""
+# ---------------------------------------------------------------------------
+# PowerPoint slides
+# ---------------------------------------------------------------------------
+_PPT_SCRIPT = r"""
+param([string]$src, [string]$dst)
+$ErrorActionPreference = 'Stop'
+$pp = New-Object -ComObject PowerPoint.Application
+$before = $pp.Presentations.Count
+try {
+  # ReadOnly, not Untitled, no window
+  $pres = $pp.Presentations.Open($src, -1, 0, 0)
+  $pres.SaveAs($dst, 32)   # ppSaveAsPDF
+  $pres.Close()
+} finally {
+  # only close PowerPoint if we started it, never the user's open presentations
+  if ($before -eq 0 -and $pp.Presentations.Count -eq 0) { $pp.Quit() }
+}
+"""
+
+
+def _find_soffice() -> str | None:
+    for cmd in ("soffice", "libreoffice"):
+        found = shutil.which(cmd)
+        if found:
+            return found
+    candidates = [
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+    ]
+    return next((c for c in candidates if Path(c).exists()), None)
+
+
+def pptx_to_pdf(data: bytes) -> tuple[bytes, str]:
+    """Convert slides to a vector PDF with PowerPoint (Windows) or LibreOffice, both on this computer."""
+    errors = []
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "slides.pptx"
+        src.write_bytes(data)
+        out = Path(tmp) / "slides.pdf"
+        if sys.platform == "win32":
+            script = Path(tmp) / "export.ps1"
+            script.write_text(_PPT_SCRIPT, encoding="utf-8-sig")
+            try:
+                subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                                "-File", str(script), str(src), str(out)],
+                               capture_output=True, timeout=300, check=True,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                if out.exists():
+                    return out.read_bytes(), "Microsoft PowerPoint"
+            except (subprocess.SubprocessError, OSError) as exc:
+                errors.append(f"PowerPoint: {exc}")
+        soffice = _find_soffice()
+        if soffice:
+            profile = (Path(tmp) / "lo_profile").as_uri()
+            try:
+                subprocess.run([soffice, "--headless", "--norestore", f"-env:UserInstallation={profile}",
+                                "--convert-to", "pdf", "--outdir", tmp, str(src)],
+                               capture_output=True, timeout=300, check=True)
+                if out.exists():
+                    return out.read_bytes(), "LibreOffice"
+            except (subprocess.SubprocessError, OSError) as exc:
+                errors.append(f"LibreOffice: {exc}")
+    raise RuntimeError(
+        "슬라이드를 변환하려면 이 컴퓨터에 Microsoft PowerPoint(Windows) 또는 LibreOffice가 필요합니다. "
+        "또는 PowerPoint에서 '파일 › 다른 이름으로 저장 › PDF'로 저장한 PDF를 올려 주세요 (그림이 벡터로 유지됩니다)."
+        + (f" [{'; '.join(errors)}]" if errors else ""))
+
+
+def process_pptx(name: str, data: bytes, opt: FigureOptions) -> FigureResult:
     try:
-        xobjects = page["/Resources"].get("/XObject") or {}
-        w_in = width_mm / MM_PER_INCH
-        for ref in xobjects.values():
-            obj = ref.get_object()
-            if obj.get("/Subtype") == "/Image":
-                eff = int(obj["/Width"]) / w_in
-                if eff < dpi * 0.95:
-                    res.warnings.append(f"이 PDF 안의 그림은 비트맵이며 {width_mm:.0f} mm 폭에서 약 {eff:.0f} dpi입니다(목표 {dpi} dpi). "
-                                        "PDF로 감싸도 해상도는 올라가지 않습니다.")
-                    return
+        pdf, engine = pptx_to_pdf(data)
+    except RuntimeError as exc:
+        return FigureResult(name, error=str(exc))
+    res = process_pdf(name, pdf, opt, label="slide")
+    note = f"{engine}로 슬라이드를 PDF로 바꾼 뒤 변환했습니다."
+    if engine == "LibreOffice":
+        note += " 슬라이드의 글꼴이 이 컴퓨터에 없으면 다른 글꼴로 보일 수 있으니 미리보기를 확인하세요."
+    res.warnings.insert(0, note)
+    return res
+
+
+def parse_pages(text: str) -> list[int] | None:
+    """'1, 3-5' -> [1, 3, 4, 5]; empty -> None (all)."""
+    pages: list[int] = []
+    for part in re.split(r"[,\s]+", (text or "").strip()):
+        if not part:
+            continue
+        m = re.fullmatch(r"(\d+)\s*[-–~]\s*(\d+)", part)
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            pages.extend(range(min(a, b), max(a, b) + 1))
+        elif part.isdigit():
+            pages.append(int(part))
+        else:
+            raise ValueError(f"페이지 번호를 이해할 수 없습니다: '{part}' (예: 1, 3-5)")
+    return sorted(set(pages)) or None
+
+
+def _warn_embedded_raster(pdf_page, area: tuple[float, float, float, float], factor: float, dpi: int,
+                          res: FigureResult, label: str) -> None:
+    """A 'vector' PDF can still contain bitmaps (photos, or shapes rasterised by the exporter).
+
+    Reports the lowest effective resolution of bitmaps that are visible at a meaningful size
+    in the final figure; wrapping a bitmap in a PDF does not raise its resolution.
+    """
+    import pypdfium2.raw as pdfium_c
+
+    left, bottom, right, top = area
+    worst = None
+    try:
+        for obj in pdf_page.get_objects(filter=[pdfium_c.FPDF_PAGEOBJ_IMAGE], max_depth=8):
+            x0, y0, x1, y1 = obj.get_bounds()
+            if x1 <= left or x0 >= right or y1 <= bottom or y0 >= top:
+                continue
+            shown_in = (x1 - x0) * factor / 72
+            if shown_in <= 0 or (x1 - x0) < 0.1 * (right - left):
+                continue
+            eff = obj.get_px_size()[0] / shown_in
+            worst = eff if worst is None else min(worst, eff)
     except Exception:
         return
+    if worst is not None and worst < dpi * 0.95:
+        res.warnings.append(f"{label}: 안에 비트맵 그림이 있으며 최종 크기에서 약 {worst:.0f} dpi입니다(목표 {dpi} dpi). "
+                            "이 부분은 해상도가 올라가지 않습니다. 사진은 원본 고해상도 파일로 바꿔 넣고, "
+                            "도형·그래프는 가능하면 PowerPoint에서 직접 PDF로 저장하세요.")
 
 
 RASTER_EXT = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".webp")
@@ -265,6 +430,8 @@ def process(name: str, data: bytes, opt: FigureOptions) -> FigureResult:
     try:
         if lower.endswith(".pdf"):
             return process_pdf(name, data, opt)
+        if lower.endswith((".pptx", ".ppt")):
+            return process_pptx(name, data, opt)
         if lower.endswith(".eps"):
             try:
                 img = Image.open(io.BytesIO(data))
@@ -283,7 +450,7 @@ def process(name: str, data: bytes, opt: FigureOptions) -> FigureResult:
             return process_pdf(name, pdf, opt)
         if lower.endswith(RASTER_EXT):
             return process_raster(name, data, opt)
-        return FigureResult(name, error="지원하지 않는 형식입니다 (PNG, JPG, TIFF, BMP, GIF, WEBP, PDF, EPS, SVG).")
+        return FigureResult(name, error="지원하지 않는 형식입니다 (PNG, JPG, TIFF, BMP, GIF, WEBP, PDF, PPTX, EPS, SVG).")
     except Exception as exc:  # report, never crash the batch
         return FigureResult(name, error=f"처리 실패: {exc}")
 
