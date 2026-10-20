@@ -97,7 +97,32 @@ def check_components() -> list[str]:
     except ValueError:
         pass  # the test PDF has no text; this only proves the PDF reader is bundled
     done.append("PDF 읽기")
+    done.append(f"화면 모듈 {check_app_imports()}개")
     return done
+
+
+def check_app_imports() -> int:
+    """Import every module app.py imports. Streamlit runs app.py only when a browser connects,
+    so a module missing from the installer would otherwise go unnoticed until a user opens it."""
+    import ast
+    import importlib
+
+    tree = ast.parse((base_dir() / "app.py").read_text(encoding="utf-8"))
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                importlib.import_module(alias.name)
+                count += 1
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            module = importlib.import_module(node.module)
+            count += 1
+            for alias in node.names:
+                # "from core import storage": storage is a submodule unless the package defines it
+                if not hasattr(module, alias.name):
+                    importlib.import_module(f"{node.module}.{alias.name}")
+                    count += 1
+    return count
 
 
 def setup_output() -> None:

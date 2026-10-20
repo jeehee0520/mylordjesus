@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_data_files
 
 ROOT = Path(SPECPATH).parent
 NAME = "ManuscriptAssistant"
@@ -21,8 +21,11 @@ datas += [
     (str(ROOT / "data"), "data"),
     (str(ROOT / ".streamlit"), ".streamlit"),
 ]
-# app.py is run by Streamlit as a script, so list what it imports explicitly
-hiddenimports += collect_submodules("core") + ["pandas", "lxml.etree", "pdfplumber", "pypdf", "bs4", "requests"]
+# app.py is run by Streamlit as a script, so PyInstaller cannot see its imports: list every core
+# module by file name (collect_submodules("core") finds nothing here, because "core" is not on the
+# build's import path when the hook runs). desktop.py --selftest imports them all to prove it.
+hiddenimports += ["core"] + [f"core.{p.stem}" for p in sorted((ROOT / "core").glob("*.py")) if p.stem != "__init__"]
+hiddenimports += ["pandas", "lxml.etree", "pdfplumber", "pypdf", "bs4", "requests"]
 
 a = Analysis(
     [str(ROOT / "desktop.py")],
