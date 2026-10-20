@@ -123,3 +123,33 @@ def test_pptx_slides_become_figures():
     res = process("slides.pptx", buf.getvalue(), FigureOptions(dpi=300, width_mm=80, trim_whitespace=True))
     assert not res.error, res.error
     assert sorted(o.filename for o in res.outputs) == ["slides_slide1.pdf", "slides_slide1.png", "slides_slide2.pdf", "slides_slide2.png"]
+
+
+# ---------------------------------------------------------------- proofreading tab
+def test_proofreader_includes_table_footnotes(profile):
+    from core.proofreader import ProofOptions, proofread
+    data = table_doc([("Age", "1")], [("1", "P < 0.05.")])
+    issues = [i for i in proofread(data, profile, ProofOptions()) if i.category == "표 각주 기호"]
+    assert {(i.original, i.suggestion) for i in issues} == {("1", "*")}
+    assert all(i.default_selected for i in issues)
+    assert not [i for i in proofread(data, profile, ProofOptions(table_footnotes=False)) if i.category == "표 각주 기호"]
+
+
+# ---------------------------------------------------------------- saved guidelines
+def test_pasted_guidelines_are_saved_and_reloaded(tmp_path, monkeypatch, guideline_text, profile):
+    from core import storage
+    from core.profile import Profile
+    monkeypatch.setenv("MA_DATA_DIR", str(tmp_path))
+    first = storage.save(guideline_text)
+    again = storage.save(guideline_text + "\n")  # same text, different whitespace: one entry
+    assert first.id == again.id and len(storage.list_saved()) == 1
+    profile.confirmed = True
+    storage.save(guideline_text, name="Journal of Synthetic Testing", profile_json=profile.to_json())
+    entry = storage.list_saved()[0]
+    assert entry.name == "Journal of Synthetic Testing" and "확정됨" in entry.label
+    restored = Profile.from_json(entry.profile_json)
+    assert restored.confirmed and restored.get("abstract.max_words") == 200
+    storage.save(guideline_text)  # a later autosave keeps the confirmed profile
+    assert Profile.from_json(storage.load(first.id).profile_json).confirmed
+    storage.delete(first.id)
+    assert storage.list_saved() == []

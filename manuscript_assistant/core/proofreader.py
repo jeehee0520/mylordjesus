@@ -57,6 +57,7 @@ class ProofOptions:
     abbreviations: bool = True
     numbering: bool = True        # citations, figures, tables
     units: bool = True
+    table_footnotes: bool = True  # journal footnote symbols and P-value symbols in tables
     user_words: set[str] = field(default_factory=set)
     languagetool_url: str = ""    # e.g. http://localhost:8081 ; must be local
 
@@ -445,9 +446,18 @@ class Proofreader:
         if self.opt.numbering:
             self.citations()
             self.figures_tables()
+        if self.opt.table_footnotes:
+            self.table_footnotes()
         if self.opt.languagetool_url:
             self.languagetool(paras)
         return finalize(self.issues)
+
+    def table_footnotes(self):
+        """Footnote symbols and their order, and P-value symbols, as the journal requires."""
+        from .table_footnotes import plan_table_footnotes  # imports this module, so import late
+
+        issues, _ = plan_table_footnotes(self.view, self.profile)
+        self.issues.extend(issues)
 
 
 def finalize(issues: list[Issue]) -> list[Issue]:

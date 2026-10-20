@@ -14,7 +14,7 @@ import zipfile
 import pandas as pd
 import streamlit as st
 
-from core import guideline_loader
+from core import guideline_loader, storage
 from core.figure_processor import FigureOptions, images_from_docx, parse_pages, process
 from core.manuscript_formatter import FormatOptions, format_manuscript
 from core.profile import CATEGORIES, FIELDS, NOT_SPECIFIED, SPEC, STATUS_LABEL, Profile, format_value, parse_value
@@ -36,6 +36,9 @@ ss.setdefault("profile", None)
 ss.setdefault("manuscript", None)  # (name, bytes)
 ss.setdefault("issues", None)
 ss.setdefault("editor_version", 0)
+ss.setdefault("guide_text", "")
+ss.setdefault("draft_gid", None)    # saved entry of the text in the paste box
+ss.setdefault("profile_gid", None)  # saved entry the current profile belongs to
 
 
 def safe_name(text: str) -> str:
@@ -98,9 +101,47 @@ with tabs[0]:
     st.header("① 투고 규정 입력")
     st.write("규정 텍스트를 붙여넣거나 파일(PDF, Word, TXT, HTML)을 올리세요. 여러 개를 함께 분석할 수 있습니다.")
     st.caption("웹사이트는 브라우저에서 Ctrl+P → 'PDF로 저장'(접힌 섹션은 모두 펼친 뒤) 하거나, 내용을 복사해 아래에 붙여넣으세요.")
+
+    def autosave_pasted():
+        text = ss.guide_text
+        if len(text.strip()) >= 30:
+            ss.draft_gid = storage.save(text).id
+
+    def load_saved(gid):
+        entry = storage.load(gid)
+        if entry is None:
+            return
+        ss.guide_text = entry.text
+        ss.draft_gid = ss.profile_gid = gid
+        if entry.profile_json:
+            ss.profile = Profile.from_json(entry.profile_json)
+        else:
+            ss.profile = extract_profile(guideline_loader.from_text(entry.text, entry.name))
+        ss.editor_version += 1
+
+    def delete_saved(gid):
+        storage.delete(gid)
+        for key in ("draft_gid", "profile_gid"):
+            if ss[key] == gid:
+                ss[key] = None
+
+    saved_items = storage.list_saved()
+    if saved_items:
+        with st.expander(f"💾 저장된 투고 규정 ({len(saved_items)}개) — 다시 붙여넣을 필요 없이 불러오세요",
+                         expanded=ss.profile is None):
+            labels = {i.id: i.label for i in saved_items}
+            pick = st.selectbox("저장된 규정", list(labels), format_func=labels.get, label_visibility="collapsed")
+            s1, s2, _ = st.columns([1, 1, 4])
+            s1.button("불러오기", on_click=load_saved, args=(pick,), type="primary", width="stretch")
+            s2.button("삭제", on_click=delete_saved, args=(pick,), width="stretch")
+            st.caption(f"확정한 규정 값도 함께 저장되어 그대로 불러옵니다. 저장 위치(이 컴퓨터에만): {storage.data_dir()}")
+
     col1, col2 = st.columns(2)
     with col1:
-        pasted = st.text_area("투고 규정 텍스트 붙여넣기", height=220, placeholder="Author Guidelines 내용을 붙여넣으세요")
+        pasted = st.text_area("투고 규정 텍스트 붙여넣기", height=220, placeholder="Author Guidelines 내용을 붙여넣으세요",
+                              key="guide_text", on_change=autosave_pasted)
+        if ss.draft_gid and pasted.strip() and storage.text_id(pasted) == ss.draft_gid:
+            st.caption("💾 붙여넣은 규정을 이 컴퓨터에 자동 저장했습니다. 다음에는 위 '저장된 투고 규정'에서 불러올 수 있습니다.")
     with col2:
         files = st.file_uploader("규정 파일 업로드", type=["pdf", "docx", "txt", "html", "htm", "md"], accept_multiple_files=True)
         saved = st.file_uploader("또는 저장해 둔 규정 프로필(.json) 불러오기", type=["json"])
@@ -118,12 +159,21 @@ with tabs[0]:
             st.error(e)
         if texts:
             ss.profile = extract_profile(guideline_loader.combine(texts))
+            ss.profile_gid = None
+            if pasted.strip():
+                # keep the analysis with the pasted text only when the text was the sole source
+                only_text = len(texts) == 1
+                entry = storage.save(pasted, name=ss.profile.get("journal_name", ""),
+                                     profile_json=ss.profile.to_json() if only_text else "")
+                ss.draft_gid = entry.id
+                ss.profile_gid = entry.id if only_text else None
             ss.editor_version += 1
             st.rerun()
         elif not errors:
             st.warning("규정 텍스트나 파일을 입력하세요.")
     if saved is not None and c2.button("프로필 불러오기"):
         ss.profile = Profile.from_json(saved.getvalue().decode("utf-8"))
+        ss.profile_gid = None
         ss.editor_version += 1
         st.rerun()
 
@@ -184,6 +234,8 @@ with tabs[0]:
                     st.error(p)
             else:
                 profile.confirmed = True
+                if ss.profile_gid and (entry := storage.load(ss.profile_gid)):
+                    storage.save(entry.text, name=profile.name, profile_json=profile.to_json())
                 st.success("규정을 확정했습니다. ②~⑤ 탭을 사용할 수 있습니다.")
                 st.rerun()
 
@@ -381,6 +433,10 @@ with tabs[4]:
             style_spelling=a.checkbox("저널 철자 규칙 (영국식/미국식)", True), consistency=a.checkbox("용어 표기 일관성", True),
             abbreviations=b.checkbox("약어 정의", True), numbering=b.checkbox("인용·그림·표 번호", True),
             units=b.checkbox("숫자-단위 띄어쓰기", True),
+            table_footnotes=b.checkbox("표 각주 기호·P값 기호 (투고 규정)", True,
+                                       disabled=not (profile and profile.get("tables.footnote_symbols")),
+                                       help="규정의 각주 기호와 순서(예: † ‡ § ¶), P값 전용 기호(예: * ** ***)로 바꿉니다. "
+                                            "① 탭에서 규정을 분석해야 사용할 수 있습니다."),
         )
         words = st.text_area("사용자 사전 (오타가 아닌 전문 용어, 줄바꿈이나 쉼표로 구분)", height=80)
         popt.user_words = {w.strip() for w in re.split(r"[\n,;]", words) if w.strip()}
